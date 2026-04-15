@@ -76,7 +76,7 @@ export const Ranking: React.FC<RankingProps> = ({ onClose }) => {
                   <div className="flex-1">
                     <h4 className="font-bold text-white leading-none tracking-tight">{player.nome}</h4>
                     <div className="flex items-center gap-2 mt-1">
-                      <p className="text-[10px] text-text-muted uppercase font-black tracking-widest">{player.setor}</p>
+                      <p className="text-[10px] text-text-muted uppercase font-black tracking-widest">{player.hospital_nome || 'Sem Unidade'}</p>
                     </div>
                   </div>
 

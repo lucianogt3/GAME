@@ -44,7 +44,8 @@ try {
       moedas INTEGER DEFAULT 0,
       vitorias INTEGER DEFAULT 0,
       derrotas INTEGER DEFAULT 0,
-      is_admin INTEGER DEFAULT 0
+      is_admin INTEGER DEFAULT 0,
+      ativo INTEGER DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS metas (
@@ -113,6 +114,21 @@ try {
       concluida INTEGER DEFAULT 0,
       FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
     );
+
+    CREATE TABLE IF NOT EXISTS salas_batalha (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      descricao TEXT,
+      ativa INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS sala_batalha_questoes (
+      sala_id INTEGER NOT NULL,
+      questao_id INTEGER NOT NULL,
+      PRIMARY KEY (sala_id, questao_id),
+      FOREIGN KEY (sala_id) REFERENCES salas_batalha(id),
+      FOREIGN KEY (questao_id) REFERENCES questoes(id)
+    );
   `);
 
   // Migrations: Ensure columns exist and handle schema changes
@@ -146,9 +162,13 @@ const seedData = () => {
       const insertHospital = db.prepare('INSERT INTO hospitais (nome) VALUES (?)');
       ['Unidade Central', 'Unidade Norte', 'Unidade Sul', 'Unidade Leste', 'Unidade Oeste'].forEach(h => insertHospital.run(h));
 
-      const insertTema = db.prepare('INSERT INTO temas (nome, descricao, icone) VALUES (?, ?, ?)');
-      const resTema = insertTema.run('Segurança do Paciente', 'Metas internacionais de segurança do paciente.', 'ShieldCheck');
-      const temaId = resTema.lastInsertRowid;
+      const insertTema = db.prepare('INSERT INTO temas (nome, descricao, icone, capa) VALUES (?, ?, ?, ?)');
+      insertTema.run('Segurança do Paciente', 'Metas internacionais de segurança do paciente.', 'ShieldCheck', 'https://picsum.photos/seed/safety/800/600');
+      
+      const resEmergencia = insertTema.run('Emergência', 'Protocolos de atendimento urgente', '🚑', 'https://picsum.photos/seed/emergency/800/600');
+      const resUTI = insertTema.run('UTI', 'Cuidados intensivos', '🫀', 'https://picsum.photos/seed/icu/800/600');
+      
+      const temaId = 1; // Segurança do Paciente
 
       const insertMeta = db.prepare('INSERT INTO metas (tema_id, titulo, descricao, lore_rpg, icone, ordem, cor) VALUES (?, ?, ?, ?, ?, ?, ?)');
       const insertQuestao = db.prepare('INSERT INTO questoes (meta_id, pergunta, opcao_a, opcao_b, opcao_c, opcao_d, resposta_correta, explicacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
@@ -191,12 +211,23 @@ const seedData = () => {
 
       // Create Admin User
       db.prepare('INSERT OR IGNORE INTO usuarios (nome, email, senha, avatar, is_admin) VALUES (?, ?, ?, ?, ?)').run(
+        'Mestre dos Jogos', 'admin@guardiões.com', 'admin123', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mestre', 1
+      );
+      
+      db.prepare('INSERT OR IGNORE INTO usuarios (nome, email, senha, avatar, is_admin) VALUES (?, ?, ?, ?, ?)').run(
         'Administrador', 'admin@hcor.com.br', 'admin123', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', 1
       );
     }
   } catch (error) {
     console.error("Erro ao semear dados:", error);
   }
+
+  // Ensure Mestre dos Jogos always exists
+  try {
+    db.prepare('INSERT OR IGNORE INTO usuarios (nome, email, senha, avatar, is_admin) VALUES (?, ?, ?, ?, ?)').run(
+      'Mestre dos Jogos', 'admin@guardiões.com', 'admin123', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mestre', 1
+    );
+  } catch (e) {}
 };
 
 seedData();
@@ -226,6 +257,9 @@ async function startServer() {
       `).get(email, senha) as any;
       
       if (user) {
+        if (user.ativo === 0) {
+          return res.status(403).json({ error: 'Sua conta está bloqueada. Entre em contato com o administrador.' });
+        }
         delete user.senha;
         res.json(user);
       } else {
@@ -418,6 +452,78 @@ async function startServer() {
     res.json(ranking);
   });
 
+  // User Management (Admin Only)
+  app.get('/api/admin/usuarios', (req, res) => {
+    const users = db.prepare(`
+      SELECT u.id, u.nome, u.email, u.avatar, u.level, u.xp, u.moedas, u.is_admin, u.ativo,
+             c.nome as cargo_nome, h.nome as hospital_nome
+      FROM usuarios u
+      LEFT JOIN cargos c ON u.cargo_id = c.id
+      LEFT JOIN hospitais h ON u.hospital_id = h.id
+      ORDER BY u.nome ASC
+    `).all();
+    res.json(users);
+  });
+
+  app.get('/api/admin/hospitais', (req, res) => {
+    res.json(db.prepare('SELECT * FROM hospitais ORDER BY nome ASC').all());
+  });
+
+  app.post('/api/admin/hospitais', (req, res) => {
+    const { nome } = req.body;
+    try {
+      const result = db.prepare('INSERT INTO hospitais (nome) VALUES (?)').run(nome);
+      res.json({ id: result.lastInsertRowid });
+    } catch (e) {
+      res.status(400).json({ error: 'Unidade já existe' });
+    }
+  });
+
+  app.delete('/api/admin/hospitais/:id', (req, res) => {
+    db.prepare('DELETE FROM hospitais WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/salas-batalha', (req, res) => {
+    const salas = db.prepare('SELECT * FROM salas_batalha').all() as any[];
+    const salasComQuestoes = salas.map(s => {
+      const questoes = db.prepare('SELECT questao_id FROM sala_batalha_questoes WHERE sala_id = ?').all(s.id);
+      return { ...s, questoes_ids: questoes.map((q: any) => q.questao_id) };
+    });
+    res.json(salasComQuestoes);
+  });
+
+  app.post('/api/admin/salas-batalha', (req, res) => {
+    const { nome, descricao, questoes_ids } = req.body;
+    const result = db.prepare('INSERT INTO salas_batalha (nome, descricao) VALUES (?, ?)').run(nome, descricao);
+    const salaId = result.lastInsertRowid;
+    
+    if (questoes_ids && questoes_ids.length > 0) {
+      const insertQuestao = db.prepare('INSERT INTO sala_batalha_questoes (sala_id, questao_id) VALUES (?, ?)');
+      questoes_ids.forEach((qId: number) => insertQuestao.run(salaId, qId));
+    }
+    
+    res.json({ id: salaId });
+  });
+
+  app.delete('/api/admin/salas-batalha/:id', (req, res) => {
+    db.prepare('DELETE FROM sala_batalha_questoes WHERE sala_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM salas_batalha WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/usuarios/toggle-status', (req, res) => {
+    const { userId, ativo } = req.body;
+    db.prepare('UPDATE usuarios SET ativo = ? WHERE id = ?').run(ativo, userId);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/usuarios/reset-password', (req, res) => {
+    const { userId, novaSenha } = req.body;
+    db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(novaSenha, userId);
+    res.json({ success: true });
+  });
+
   app.get('/api/perfil/:userId', (req, res) => {
     const user = db.prepare(`
       SELECT u.*, c.nome as cargo_nome, h.nome as hospital_nome 
@@ -507,6 +613,73 @@ async function startServer() {
     socket.on('registrar_usuario_online', (user) => {
       onlinePlayers.set(socket.id, { ...user, socketId: socket.id });
       io.emit('lista_online', Array.from(onlinePlayers.values()));
+    });
+
+    socket.on('enviar_convite', ({ targetSocketId, salaId }) => {
+      const sender = onlinePlayers.get(socket.id);
+      if (!sender) return;
+      
+      let sala = null;
+      if (salaId) {
+        sala = db.prepare('SELECT * FROM salas_batalha WHERE id = ?').get(salaId);
+      }
+
+      io.to(targetSocketId).emit('convite_recebido', {
+        from: sender,
+        sala
+      });
+    });
+
+    socket.on('responder_convite', ({ senderSocketId, aceito, salaId }) => {
+      const responder = onlinePlayers.get(socket.id);
+      if (!responder) return;
+
+      if (aceito) {
+        const sender = onlinePlayers.get(senderSocketId);
+        if (!sender) {
+          socket.emit('erro_batalha', 'Oponente desconectou');
+          return;
+        }
+
+        const battleId = `battle_${Date.now()}`;
+        socket.join(battleId);
+        io.sockets.sockets.get(senderSocketId)?.join(battleId);
+
+        let questions;
+        if (salaId) {
+          questions = db.prepare(`
+            SELECT q.* FROM questoes q
+            JOIN sala_batalha_questoes sbq ON q.id = sbq.questao_id
+            WHERE sbq.sala_id = ?
+            ORDER BY RANDOM() LIMIT 5
+          `).all(salaId);
+        } else {
+          questions = db.prepare('SELECT * FROM questoes ORDER BY RANDOM() LIMIT 5').all();
+        }
+
+        const battleState = {
+          id: battleId,
+          players: [sender, responder],
+          hp: [100, 100],
+          round: 1,
+          questions
+        };
+
+        io.to(battleId).emit('batalha_iniciada', battleState);
+      } else {
+        io.to(senderSocketId).emit('convite_recusado', { from: responder });
+      }
+    });
+
+    socket.on('enviar_mensagem_batalha', ({ battleId, text }) => {
+      const sender = onlinePlayers.get(socket.id);
+      if (!sender) return;
+      io.to(battleId).emit('mensagem_batalha', {
+        userId: sender.id,
+        userName: sender.nome,
+        text,
+        timestamp: Date.now()
+      });
     });
 
     socket.on('buscar_oponente', () => {

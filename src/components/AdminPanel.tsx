@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, Plus, Trash2, Edit3, Save, X, ChevronRight, Layout, Map, HelpCircle, ShoppingBag, AlertCircle } from 'lucide-react';
+import { Shield, Plus, Trash2, Edit3, Save, X, ChevronRight, Layout, Map, HelpCircle, ShoppingBag, AlertCircle, Users, Lock, Unlock, Key, Building2, Sword, CheckSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAudio } from './AudioController';
 import { Tema, Meta, Questao } from '../types';
+import { cn } from '@/src/lib/utils';
 
 interface AdminPanelProps {
   onClose: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
-  const [activeTab, setActiveTab] = useState<'temas' | 'metas' | 'questoes' | 'loja'>('temas');
+  const [activeTab, setActiveTab] = useState<'temas' | 'metas' | 'questoes' | 'loja' | 'usuarios' | 'unidades' | 'salas'>('temas');
   const [temas, setTemas] = useState<Tema[]>([]);
   const [metas, setMetas] = useState<Meta[]>([]);
   const [questoes, setQuestoes] = useState<Questao[]>([]);
   const [avatares, setAvatares] = useState<any[]>([]);
+  const [usuarios, setUsuarios] = useState<any[]>([]);
+  const [hospitais, setHospitais] = useState<any[]>([]);
+  const [salas, setSalas] = useState<any[]>([]);
   
   const [loading, setLoading] = useState(false);
   const [selectedTemaId, setSelectedTemaId] = useState<number>(0);
@@ -27,6 +31,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [newMeta, setNewMeta] = useState({ tema_id: 0, titulo: '', descricao: '', lore_rpg: '', icone: 'Star', ordem: 1, cor: 'purple' });
   const [newQuestao, setNewQuestao] = useState({ meta_id: 0, pergunta: '', opcao_a: '', opcao_b: '', opcao_c: '', opcao_d: '', resposta_correta: 'a', explicacao: '' });
   const [newAvatar, setNewAvatar] = useState({ nome: '', url: '', preco_moedas: 100, raridade: 'comum' });
+  const [newHospital, setNewHospital] = useState({ nome: '' });
+  const [newSala, setNewSala] = useState({ nome: '', descricao: '', questoes_ids: [] as number[] });
 
   useEffect(() => {
     fetchData();
@@ -68,6 +74,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       if (activeTab === 'loja') {
         const aRes = await axios.get('/api/admin/loja');
         setAvatares(aRes.data);
+      }
+
+      if (activeTab === 'usuarios') {
+        const uRes = await axios.get('/api/admin/usuarios');
+        setUsuarios(uRes.data);
+      }
+
+      if (activeTab === 'unidades') {
+        const hRes = await axios.get('/api/admin/hospitais');
+        setHospitais(hRes.data);
+      }
+
+      if (activeTab === 'salas') {
+        const sRes = await axios.get('/api/admin/salas-batalha');
+        setSalas(sRes.data);
       }
     } catch (err) {
       console.error('Erro ao buscar dados', err);
@@ -170,6 +191,87 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     }
   };
 
+  const handleToggleUserStatus = async (userId: number, currentStatus: number) => {
+    try {
+      await axios.post('/api/admin/usuarios/toggle-status', { userId, ativo: currentStatus === 1 ? 0 : 1 });
+      playSound('conquista');
+      fetchData();
+    } catch (err) {
+      playSound('erro');
+    }
+  };
+
+  const handleResetPassword = async (userId: number) => {
+    const novaSenha = prompt('Digite a nova senha para este usuário:');
+    if (!novaSenha) return;
+    try {
+      await axios.post('/api/admin/usuarios/reset-password', { userId, novaSenha });
+      alert('Senha redefinida com sucesso!');
+      playSound('conquista');
+    } catch (err) {
+      playSound('erro');
+    }
+  };
+
+  const handleCreateHospital = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await axios.post('/api/admin/hospitais', newHospital);
+      playSound('conquista');
+      setNewHospital({ nome: '' });
+      fetchData();
+    } catch (err) {
+      playSound('erro');
+    }
+  };
+
+  const handleDeleteHospital = async (id: number) => {
+    try {
+      await axios.delete(`/api/admin/hospitais/${id}`);
+      playSound('conquista');
+      fetchData();
+    } catch (err) {
+      playSound('erro');
+    }
+  };
+
+  const handleCreateSala = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newSala.questoes_ids.length === 0) {
+      setAdminError('Selecione pelo menos uma questão.');
+      return;
+    }
+    try {
+      await axios.post('/api/admin/salas-batalha', newSala);
+      playSound('conquista');
+      setNewSala({ nome: '', descricao: '', questoes_ids: [] });
+      fetchData();
+    } catch (err) {
+      playSound('erro');
+    }
+  };
+
+  const handleDeleteSala = async (id: number) => {
+    try {
+      await axios.delete(`/api/admin/salas-batalha/${id}`);
+      playSound('conquista');
+      fetchData();
+    } catch (err) {
+      playSound('erro');
+    }
+  };
+
+  const toggleQuestaoInSala = (qId: number) => {
+    setNewSala(prev => {
+      const exists = prev.questoes_ids.includes(qId);
+      if (exists) {
+        return { ...prev, questoes_ids: prev.questoes_ids.filter(id => id !== qId) };
+      } else {
+        return { ...prev, questoes_ids: [...prev.questoes_ids, qId] };
+      }
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <motion.div 
@@ -200,6 +302,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             { id: 'metas', label: 'Trilhas', icon: Map },
             { id: 'questoes', label: 'Questões', icon: HelpCircle },
             { id: 'loja', label: 'Loja', icon: ShoppingBag },
+            { id: 'usuarios', label: 'Usuários', icon: Users },
+            { id: 'unidades', label: 'Unidades', icon: Building2 },
+            { id: 'salas', label: 'Salas', icon: Sword },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -624,13 +729,239 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 </div>
               </motion.div>
             )}
+            {activeTab === 'usuarios' && (
+              <motion.div 
+                key="usuarios"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                    <Users size={18} className="text-accent-gold" /> Gestão de Usuários
+                  </h3>
+                  <div className="text-[10px] font-bold text-text-muted uppercase tracking-widest">
+                    Total: {usuarios.length} Guardiões
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4">
+                  {usuarios.map(user => (
+                    <div key={user.id} className="p-4 sleek-card bg-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4 group">
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <img src={user.avatar} className={cn("w-12 h-12 rounded-full border-2 object-cover", user.ativo === 0 ? "grayscale border-red-500/50" : "border-accent-gold/50")} referrerPolicy="no-referrer" />
+                          {user.is_admin === 1 && (
+                            <div className="absolute -top-1 -right-1 bg-accent-gold text-black p-0.5 rounded-full">
+                              <Shield size={10} />
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <h4 className={cn("text-sm font-bold", user.ativo === 0 ? "text-text-muted line-through" : "text-white")}>
+                            {user.nome} 
+                            {user.ativo === 0 && <span className="ml-2 text-[8px] bg-red-500/20 text-red-500 px-1.5 py-0.5 rounded uppercase tracking-widest">Bloqueado</span>}
+                          </h4>
+                          <p className="text-[10px] text-text-muted">{user.email}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[8px] bg-white/10 px-1.5 py-0.5 rounded uppercase tracking-widest font-black text-accent-gold">LVL {user.level}</span>
+                            <span className="text-[8px] text-text-muted uppercase font-bold tracking-widest">{user.cargo_nome} • {user.hospital_nome}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => handleResetPassword(user.id)}
+                          className="flex items-center gap-2 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                          title="Resetar Senha"
+                        >
+                          <Key size={14} />
+                          Resetar Senha
+                        </button>
+                        
+                        <button 
+                          onClick={() => handleToggleUserStatus(user.id, user.ativo)}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                            user.ativo === 1 
+                              ? "bg-red-500/10 hover:bg-red-500/20 text-red-400" 
+                              : "bg-success/10 hover:bg-success/20 text-success"
+                          )}
+                        >
+                          {user.ativo === 1 ? (
+                            <>
+                              <Lock size={14} />
+                              Bloquear
+                            </>
+                          ) : (
+                            <>
+                              <Unlock size={14} />
+                              Desbloquear
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'unidades' && (
+              <motion.div 
+                key="unidades"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="grid grid-cols-1 lg:grid-cols-2 gap-8"
+              >
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                    <Plus size={18} className="text-accent-gold" /> Nova Unidade / Hospital
+                  </h3>
+                  <form onSubmit={handleCreateHospital} className="space-y-4 sleek-card p-6 bg-white/5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Nome da Unidade</label>
+                      <input 
+                        className="sleek-input text-sm" 
+                        placeholder="Ex: Unidade Central"
+                        value={newHospital.nome}
+                        onChange={e => setNewHospital({ nome: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <button type="submit" className="w-full sleek-btn py-3 text-xs">Adicionar Unidade</button>
+                  </form>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-white uppercase tracking-widest">Unidades Cadastradas</h3>
+                  <div className="space-y-3">
+                    {hospitais.map(h => (
+                      <div key={h.id} className="p-4 sleek-card bg-white/5 flex items-center justify-between group">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-white/10 rounded-lg text-text-muted">
+                            <Building2 size={18} />
+                          </div>
+                          <h4 className="text-sm font-bold text-white">{h.nome}</h4>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteHospital(h.id)}
+                          className="p-2 hover:bg-white/10 rounded-lg text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'salas' && (
+              <motion.div 
+                key="salas"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="grid grid-cols-1 lg:grid-cols-2 gap-8"
+              >
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                    <Plus size={18} className="text-accent-gold" /> Configurar Sala de Batalha
+                  </h3>
+                  <form onSubmit={handleCreateSala} className="space-y-4 sleek-card p-6 bg-white/5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Nome da Sala</label>
+                      <input 
+                        className="sleek-input text-sm" 
+                        placeholder="Ex: Torneio de Emergência"
+                        value={newSala.nome}
+                        onChange={e => setNewSala({ ...newSala, nome: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Descrição</label>
+                      <textarea 
+                        className="sleek-input text-sm min-h-[80px]" 
+                        placeholder="Descreva o objetivo desta sala..."
+                        value={newSala.descricao}
+                        onChange={e => setNewSala({ ...newSala, descricao: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Selecionar Questões ({newSala.questoes_ids.length})</label>
+                        <span className="text-[10px] font-black text-accent-gold uppercase tracking-widest">
+                          {newSala.questoes_ids.length < 5 ? `Faltam ${5 - newSala.questoes_ids.length}` : 'Pronto!'}
+                        </span>
+                      </div>
+                      
+                      <div className="h-[200px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                        {temas.map(tema => (
+                          <div key={tema.id} className="space-y-2">
+                            <h5 className="text-[8px] font-black text-accent-gold uppercase tracking-widest border-b border-white/5 pb-1">{tema.nome}</h5>
+                            {metas.filter(m => m.tema_id === tema.id).map(meta => (
+                              <div key={meta.id} className="space-y-1 pl-2">
+                                <h6 className="text-[8px] font-bold text-text-muted uppercase tracking-widest">{meta.titulo}</h6>
+                                {questoes.filter(q => q.meta_id === meta.id).map(q => (
+                                  <button
+                                    key={q.id}
+                                    type="button"
+                                    onClick={() => toggleQuestaoInSala(q.id)}
+                                    className={cn(
+                                      "w-full text-left p-2 rounded-lg text-[10px] transition-all flex items-center justify-between gap-2",
+                                      newSala.questoes_ids.includes(q.id) ? "bg-accent-gold/20 text-accent-gold border border-accent-gold/30" : "bg-white/5 text-text-muted border border-transparent hover:bg-white/10"
+                                    )}
+                                  >
+                                    <span className="truncate">{q.pergunta}</span>
+                                    {newSala.questoes_ids.includes(q.id) && <CheckSquare size={12} />}
+                                  </button>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button type="submit" className="w-full sleek-btn py-3 text-xs">Criar Sala de Batalha</button>
+                  </form>
+                </div>
+
+                <div className="space-y-6">
+                  <h3 className="text-sm font-black text-white uppercase tracking-widest">Salas Ativas</h3>
+                  <div className="space-y-3">
+                    {salas.map(s => (
+                      <div key={s.id} className="p-4 sleek-card bg-white/5 flex items-center justify-between group">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-accent-gold/10 rounded-lg text-accent-gold">
+                            <Sword size={18} />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-white">{s.nome}</h4>
+                            <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest">{s.questoes_ids?.length || 0} Questões Selecionadas</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteSala(s.id)}
+                          className="p-2 hover:bg-white/10 rounded-lg text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </motion.div>
     </div>
   );
 };
-
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(' ');
-}
